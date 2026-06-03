@@ -11,3 +11,7 @@ wheels/
 
 # Local secrets
 .env
+
+# Runtime state and local logs
+state/
+ai-news-bot.log

@@ -9,6 +9,15 @@ The bot uses Tavily for search, Groq for article summarization with `meta-llama/
 
 Each article is summarized individually with a short delay between summaries. The final digest is sent as one Telegram message when possible. If the message exceeds Telegram's size limit, it is split into multiple chunks.
 
+The research digest is limited to research-oriented domains and uses a one-week search window. The news digest uses a one-day search window. Delivered URLs are stored locally in `state/seen_urls.json` so future cron runs skip repeats.
+
+## Code Layout
+
+- `main.py`: CLI router used by cron.
+- `research_digest.py`: AI research search, filtering, and summarization.
+- `news_digest.py`: daily news search, filtering, and summarization.
+- `digest_common.py`: shared environment, Telegram, logging, and URL-history helpers.
+
 ## Requirements
 
 - Python 3.11 or newer
@@ -84,7 +93,7 @@ python main.py news --dry-run
 
 ## Remote Server Setup
 
-These instructions assume an Ubuntu server and deployment under `/opt/ai-news-bot`.
+These instructions assume an Ubuntu server and deployment under `/opt/AI-news-bot`.
 
 Update the server and set the timezone:
 
@@ -104,14 +113,14 @@ Clone the repo:
 
 ```bash
 cd /opt
-git clone https://github.com/Anhad-01/AI-news-bot.git ai-news-bot
-cd /opt/ai-news-bot
+git clone https://github.com/Anhad-01/AI-news-bot.git AI-news-bot
+cd /opt/AI-news-bot
 ```
 
 If the repo already exists, pull the latest code instead:
 
 ```bash
-cd /opt/ai-news-bot
+cd /opt/AI-news-bot
 git pull origin main
 ```
 
@@ -126,7 +135,7 @@ python3 -m venv .venv
 Create the server `.env`:
 
 ```bash
-nano /opt/ai-news-bot/.env
+nano /opt/AI-news-bot/.env
 ```
 
 Add:
@@ -142,13 +151,13 @@ MODEL_NAME=meta-llama/llama-4-scout-17b-16e-instruct
 Restrict permissions:
 
 ```bash
-chmod 600 /opt/ai-news-bot/.env
+chmod 600 /opt/AI-news-bot/.env
 ```
 
 Test manually:
 
 ```bash
-cd /opt/ai-news-bot
+cd /opt/AI-news-bot
 .venv/bin/python main.py research --max-results 1
 .venv/bin/python main.py news --max-results 1
 ```
@@ -169,8 +178,8 @@ crontab -e
 Add:
 
 ```cron
-0 9 * * * cd /opt/ai-news-bot && .venv/bin/python main.py research >> /var/log/ai-news-bot.log 2>&1
-30 9 * * * cd /opt/ai-news-bot && .venv/bin/python main.py news >> /var/log/ai-news-bot.log 2>&1
+0 9 * * * cd /opt/AI-news-bot && .venv/bin/python main.py research >> /var/log/ai-news-bot.log 2>&1
+30 9 * * * cd /opt/AI-news-bot && .venv/bin/python main.py news >> /var/log/ai-news-bot.log 2>&1
 ```
 
 Verify:
@@ -189,8 +198,8 @@ tail -n 100 /var/log/ai-news-bot.log
 If the server timezone is UTC, use these cron times instead:
 
 ```cron
-30 3 * * * cd /opt/ai-news-bot && .venv/bin/python main.py research >> /var/log/ai-news-bot.log 2>&1
-0 4 * * * cd /opt/ai-news-bot && .venv/bin/python main.py news >> /var/log/ai-news-bot.log 2>&1
+30 3 * * * cd /opt/AI-news-bot && .venv/bin/python main.py research >> /var/log/ai-news-bot.log 2>&1
+0 4 * * * cd /opt/AI-news-bot && .venv/bin/python main.py news >> /var/log/ai-news-bot.log 2>&1
 ```
 
 ## Updating the Server
@@ -198,7 +207,7 @@ If the server timezone is UTC, use these cron times instead:
 After pushing changes to GitHub:
 
 ```bash
-cd /opt/ai-news-bot
+cd /opt/AI-news-bot
 git pull origin main
 .venv/bin/pip install -r requirements.txt
 ```
