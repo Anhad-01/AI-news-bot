@@ -1,0 +1,63 @@
+{
+  "llms_research": {
+    "allowed_domains": [
+      "arxiv.org", "openreview.net", "aclanthology.org", "proceedings.mlr.press",
+      "jmlr.org", "dl.acm.org", "ieee.org", "springer.com", "nature.com", "science.org"
+    ],
+    "strong_domains": ["arxiv.org", "openreview.net", "aclanthology.org"],
+    "url_signals": ["/abs/", "/pdf/", "/article/", "/paper/", "/content/"],
+    "text_signals": ["abstract", "doi", "preprint", "transformer", "language model", "llm", "fine-tuning"]
+  },
+  "agentic_ai_research": {
+    "allowed_domains": [
+      "arxiv.org", "openreview.net", "dl.acm.org", "ieee.org",
+      "proceedings.mlr.press", "aclanthology.org", "springer.com", "nature.com"
+    ],
+    "strong_domains": ["arxiv.org", "openreview.net"],
+    "url_signals": ["/abs/", "/pdf/", "/article/", "/paper/"],
+    "text_signals": ["abstract", "doi", "preprint", "agent", "autonomous", "planning", "tool use", "reasoning"]
+  },
+  "computer_vision_research": {
+    "allowed_domains": [
+      "arxiv.org", "openreview.net", "ieee.org", "dl.acm.org",
+      "proceedings.mlr.press", "springer.com", "nature.com", "sciencedirect.com"
+    ],
+    "strong_domains": ["arxiv.org", "openreview.net"],
+    "url_signals": ["/abs/", "/pdf/", "/article/", "/paper/", "/content/"],
+    "text_signals": ["abstract", "doi", "preprint", "dataset", "benchmark", "detection", "segmentation", "recognition"]
+  },
+  "nlp_research": {
+    "allowed_domains": [
+      "arxiv.org", "aclanthology.org", "openreview.net",
+      "proceedings.mlr.press", "jmlr.org", "dl.acm.org", "springer.com"
+    ],
+    "strong_domains": ["arxiv.org", "aclanthology.org", "openreview.net"],
+    "url_signals": ["/abs/", "/pdf/", "/article/", "/paper/"],
+    "text_signals": ["abstract", "doi", "preprint", "corpus", "benchmark", "parsing", "generation", "translation"]
+  },
+  "ml_research": {
+    "allowed_domains": [
+      "arxiv.org", "openreview.net", "proceedings.mlr.press", "jmlr.org",
+      "ieee.org", "dl.acm.org", "springer.com", "nature.com",
+      "pubmed.ncbi.nlm.nih.gov", "biorxiv.org", "medrxiv.org"
+    ],
+    "strong_domains": ["arxiv.org", "openreview.net", "proceedings.mlr.press", "jmlr.org"],
+    "url_signals": ["/abs/", "/pdf/", "/article/", "/paper/", "/content/", "/doi/"],
+    "text_signals": ["abstract", "doi", "preprint", "convergence", "optimization", "generalization", "gradient"]
+  },
+  "defence_news": {
+    "context_keywords": ["defence", "defense", "military", "NATO", "weapons", "geopolitics", "conflict", "armed forces", "security"]
+  },
+  "healthcare_news": {
+    "context_keywords": ["health", "medicine", "FDA", "clinical trial", "pandemic", "drug", "hospital", "WHO", "vaccine", "treatment"]
+  },
+  "fintech_news": {
+    "context_keywords": ["fintech", "finance", "banking", "cryptocurrency", "payments", "regulation", "SEC", "investment", "market"]
+  },
+  "sustainability_news": {
+    "context_keywords": ["climate", "sustainability", "renewable energy", "carbon", "emissions", "environment", "COP", "net zero", "green"]
+  },
+  "politics_news": {
+    "context_keywords": ["politics", "election", "government", "parliament", "policy", "legislation", "president", "prime minister", "senate"]
+  }
+}
