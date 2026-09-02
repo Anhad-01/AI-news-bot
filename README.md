@@ -146,11 +146,11 @@ TELEGRAM_CHAT_ID=your_telegram_chat_id
 
 # Optional — defaults shown
 MODEL_NAME=openai/gpt-oss-120b
-MAX_RESULTS=3
+MAX_RESULTS=1
 AI_NEWS_BOT_LOG=ai-news-bot.log
 ```
 
-`MAX_RESULTS` is the maximum number of articles **per topic agent**. With 5 agents, the digest contains at most `5 × MAX_RESULTS` articles. The default is 3 (up to 15 articles per digest).
+`MAX_RESULTS` is the maximum number of articles **per topic agent**. With 5 agents, the digest contains at most `5 × MAX_RESULTS` articles. The default is 1 (up to 5 articles per digest).
 
 ---
 
