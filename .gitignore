@@ -13,5 +13,5 @@ wheels/
 .env
 
 # Runtime state and local logs
-state/
+# state/
 ai-news-bot.log
