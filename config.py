@@ -14,9 +14,9 @@ class Config:
     MODEL_NAME: str = os.getenv("MODEL_NAME", "openai/gpt-oss-120b")
 
     # Tunable constants
-    DEFAULT_MAX_RESULTS: int = int(os.getenv("MAX_RESULTS", "3"))
+    DEFAULT_MAX_RESULTS: int = int(os.getenv("MAX_RESULTS", "1"))
     MAX_CONTENT_CHARS: int = 12_000
-    SEARCH_RESULTS_PER_TOPIC: int = 10
+    SEARCH_RESULTS_PER_TOPIC: int = 5
     SUMMARY_DELAY_SECONDS: float = 5.0
     TELEGRAM_MAX_CHARS: int = 4_096
     STATE_DIR: Path = Path("state")
