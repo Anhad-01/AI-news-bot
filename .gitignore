@@ -15,3 +15,6 @@ wheels/
 # Runtime state and local logs
 # state/
 ai-news-bot.log
+
+AGENT_ORCHESTRATION.md
+zed.md

@@ -17,7 +17,10 @@ from knowledge.knowledge_base import KnowledgeBase
 from models.agent_response import AgentResponse
 from models.digest_result import DigestResult
 from orchestrator.orchestrator import AgentOrchestrator
+from services.article_classifier import ArticleClassifier
+from services.article_ranker import ChronologicalRanker
 from services.llm_service import LLMService
+from services.rss_service import RSSService
 from services.search_service import SearchService
 from services.telegram_service import TelegramService
 from services.url_tracker import URLTracker
@@ -49,18 +52,15 @@ def log_event(job_type: str, message: str) -> None:
         pass
 
 
-def _make_services() -> tuple[LLMService, SearchService, KnowledgeBase]:
-    # Both keys are guaranteed non-None after Config.validate() in run_job().
+def _make_llm_and_kb() -> tuple[LLMService, KnowledgeBase]:
+    """Services shared by all agents regardless of job type."""
     groq_key = Config.GROQ_API_KEY or ""
-    tavily_key = Config.TAVILY_API_KEY or ""
     llm = LLMService(
         api_key=groq_key,
         model=Config.MODEL_NAME,
         delay=Config.SUMMARY_DELAY_SECONDS,
     )
-    search = SearchService(api_key=tavily_key)
-    kb = KnowledgeBase()
-    return llm, search, kb
+    return llm, KnowledgeBase()
 
 
 def _compile_digest(title: str, responses: list[AgentResponse]) -> DigestResult:
@@ -91,7 +91,10 @@ def _compile_digest(title: str, responses: list[AgentResponse]) -> DigestResult:
 
 
 def build_research_digest(max_results: int) -> DigestResult:
-    llm, search, kb = _make_services()
+    llm, kb = _make_llm_and_kb()
+    tavily_key = Config.TAVILY_API_KEY or ""
+    search = SearchService(api_key=tavily_key)
+
     orchestrator = AgentOrchestrator()
     for agent_cls in _RESEARCH_AGENTS:
         orchestrator.register(agent_cls(llm, search, kb))
@@ -103,10 +106,14 @@ def build_research_digest(max_results: int) -> DigestResult:
 
 
 def build_news_digest(max_results: int) -> DigestResult:
-    llm, search, kb = _make_services()
+    llm, kb = _make_llm_and_kb()
+    rss = RSSService()
+    classifier = ArticleClassifier(llm)
+    ranker = ChronologicalRanker()
+
     orchestrator = AgentOrchestrator()
     for agent_cls in _NEWS_AGENTS:
-        orchestrator.register(agent_cls(llm, search, kb))
+        orchestrator.register(agent_cls(llm, rss, classifier, ranker, kb))
 
     seen_urls = URLTracker(Config.STATE_DIR).load()
     responses = orchestrator.execute_all(max_results, seen_urls)
@@ -119,7 +126,7 @@ def run_job(
     max_results: int = Config.DEFAULT_MAX_RESULTS,
     dry_run: bool = False,
 ) -> str:
-    Config.validate()
+    Config.validate(job_type=job_type)
     log_event(job_type, "start")
 
     if job_type == "research":
@@ -137,7 +144,7 @@ def run_job(
         )
         return digest.message
 
-    # Both values are guaranteed non-None after Config.validate().
+    # Both values guaranteed non-None after Config.validate().
     telegram = TelegramService(
         bot_token=Config.TELEGRAM_BOT_TOKEN or "",
         chat_id=Config.TELEGRAM_CHAT_ID or "",
