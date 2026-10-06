@@ -14,7 +14,7 @@ class Config:
     MODEL_NAME: str = os.getenv("MODEL_NAME", "openai/gpt-oss-120b")
 
     # Tunable constants
-    DEFAULT_MAX_RESULTS: int = int(os.getenv("MAX_RESULTS", "3"))
+    DEFAULT_MAX_RESULTS: int = int(os.getenv("MAX_RESULTS", "1"))
     NEWS_BATCH_SIZE: int = int(os.getenv("NEWS_BATCH_SIZE", "2"))
     NEWS_MAX_CLASSIFY_RETRIES: int = int(os.getenv("NEWS_MAX_CLASSIFY_RETRIES", "3"))
     MAX_CONTENT_CHARS: int = 12_000
