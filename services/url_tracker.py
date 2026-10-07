@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -26,20 +27,43 @@ def domain_for_url(url: str) -> str:
     return netloc[4:] if netloc.startswith("www.") else netloc
 
 
+class SeenURLs(set[str]):
+    """
+    A set of normalized URLs shared by all agents in one run.
+
+    claim() atomically checks and adds a URL, so agents running in parallel
+    can never both select the same article.
+    """
+
+    def __init__(self, urls: Iterable[str] = ()) -> None:
+        super().__init__(urls)
+        self._lock = threading.Lock()
+
+    def claim(self, url: str) -> bool:
+        """Return True and record the URL if it was unseen; False otherwise."""
+        if not url:
+            return False
+        with self._lock:
+            if url in self:
+                return False
+            self.add(url)
+            return True
+
+
 class URLTracker:
     def __init__(self, state_dir: Path) -> None:
         self._path = state_dir / "seen_urls.json"
 
-    def load(self) -> set[str]:
+    def load(self) -> SeenURLs:
         if not self._path.exists():
-            return set()
+            return SeenURLs()
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            return set()
+            return SeenURLs()
         if isinstance(data, list):
-            return {item for item in data if isinstance(item, str)}
-        return set()
+            return SeenURLs(item for item in data if isinstance(item, str))
+        return SeenURLs()
 
     def mark_seen(self, urls: Iterable[str]) -> None:
         seen = self.load()

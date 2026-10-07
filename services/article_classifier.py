@@ -11,8 +11,8 @@ class ArticleClassifier:
 
     To activate:
       1. Implement the classify() body using CLASSIFICATION_PROMPT.
-      2. Uncomment the geography filter in BaseNewsAgent.execute().
-      3. Uncomment the retry loop in BaseNewsAgent.execute().
+      2. Uncomment the retry loop and geography filter in
+         BaseNewsAgent._prepare_articles().
 
     Planned implementation (when activated):
       - Build a numbered list of all headlines.

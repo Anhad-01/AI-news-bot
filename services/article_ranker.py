@@ -8,7 +8,7 @@ class ArticleRanker(ABC):
     """
     Pluggable ranking interface for FeedArticle lists.
 
-    Swap the implementation passed to BaseNewsAgent without touching any agent code.
+    Swap the implementation passed to the agents in main.py without touching any agent code.
     Examples of future rankers: RelevanceRanker, EngagementRanker, HybridRanker.
     """
 

@@ -1,19 +1,19 @@
 from agents.research.base_research_agent import BaseResearchAgent
+from config import Config
 from models.feed_article import FeedArticle
-from prompts.research.llms_prompt import LLMS_SUMMARY_PROMPT
+from prompts.research.etech_prompt import ETECH_SUMMARY_PROMPT
 
 
-class LLMsResearchAgent(BaseResearchAgent):
+class ETechResearchAgent(BaseResearchAgent):
     def get_agent_name(self) -> str:
-        return "LLMs Research"
+        return "ETech"
 
     def get_knowledge_key(self) -> str:
-        return "llms_research"
+        return "etech_research"
 
     def build_summary_prompt(self, article: FeedArticle) -> str:
-        return LLMS_SUMMARY_PROMPT.format(
+        return ETECH_SUMMARY_PROMPT.format(
             title=article.title,
             url=article.url,
-            source_label="Abstract",
-            source_text=self.extract_abstract(article),
+            source_text=article.content[: Config.MAX_CONTENT_CHARS],
         )

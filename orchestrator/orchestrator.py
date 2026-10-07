@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from agents.base_agent import BaseAgent
 from models.agent_response import AgentExecutionResult, AgentResponse, AgentStatus
+from services.url_tracker import SeenURLs
 
 
 class AgentOrchestrator:
@@ -26,7 +27,7 @@ class AgentOrchestrator:
     def register(self, agent: BaseAgent) -> None:
         self._agents[agent.get_agent_name()] = agent
 
-    def execute_all(self, max_results: int, seen_urls: set[str]) -> list[AgentResponse]:
+    def execute_all(self, max_results: int, seen_urls: SeenURLs) -> list[AgentResponse]:
         """Run all registered agents in parallel; collect and return their responses."""
         with ThreadPoolExecutor(max_workers=len(self._agents)) as pool:
             futures = {
@@ -55,7 +56,7 @@ class AgentOrchestrator:
         self,
         agent: BaseAgent,
         max_results: int,
-        seen_urls: set[str],
+        seen_urls: SeenURLs,
     ) -> AgentResponse:
         last_exc: Exception | None = None
 

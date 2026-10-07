@@ -9,9 +9,10 @@ from agents.news.politics_agent import PoliticsNewsAgent
 from agents.news.sustainability_agent import SustainabilityNewsAgent
 from agents.research.agentic_ai_agent import AgenticAIResearchAgent
 from agents.research.computer_vision_agent import ComputerVisionResearchAgent
+from agents.research.etech_agent import ETechResearchAgent
 from agents.research.llms_agent import LLMsResearchAgent
 from agents.research.ml_agent import MLResearchAgent
-from agents.research.nlp_agent import NLPResearchAgent
+from agents.research.nlp_agent import NLPResearchAgent  # noqa: F401 (inactive)
 from config import Config
 from knowledge.knowledge_base import KnowledgeBase
 from models.agent_response import AgentResponse
@@ -21,15 +22,16 @@ from services.article_classifier import ArticleClassifier
 from services.article_ranker import ChronologicalRanker
 from services.llm_service import LLMService
 from services.rss_service import RSSService
-from services.search_service import SearchService
+
 from services.telegram_service import TelegramService
 from services.url_tracker import URLTracker
 
+# NLPResearchAgent is intentionally inactive; add it back here to re-enable it.
 _RESEARCH_AGENTS = [
+    ETechResearchAgent,
     LLMsResearchAgent,
     AgenticAIResearchAgent,
     ComputerVisionResearchAgent,
-    NLPResearchAgent,
     MLResearchAgent,
 ]
 
@@ -92,12 +94,13 @@ def _compile_digest(title: str, responses: list[AgentResponse]) -> DigestResult:
 
 def build_research_digest(max_results: int) -> DigestResult:
     llm, kb = _make_llm_and_kb()
-    tavily_key = Config.TAVILY_API_KEY or ""
-    search = SearchService(api_key=tavily_key)
+    rss = RSSService()
+    classifier = ArticleClassifier(llm)
+    ranker = ChronologicalRanker()
 
     orchestrator = AgentOrchestrator()
     for agent_cls in _RESEARCH_AGENTS:
-        orchestrator.register(agent_cls(llm, search, kb))
+        orchestrator.register(agent_cls(llm, rss, classifier, ranker, kb))
 
     seen_urls = URLTracker(Config.STATE_DIR).load()
     responses = orchestrator.execute_all(max_results, seen_urls)
