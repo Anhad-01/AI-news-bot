@@ -2,14 +2,14 @@
 
 AI News Bot sends daily Telegram digests for two scheduled jobs:
 
-- `research`: searches for recent research articles and papers on LLMs, agentic AI, computer vision, NLP, and machine learning.
-- `news`: searches for recent news articles on defence, healthcare, fintech, sustainable development, climate, and politics.
+- `research`: reads RSS feeds for recent arXiv papers on LLMs, agentic AI, computer vision, and machine learning, plus Economic Times tech news.
+- `news`: reads RSS feeds for recent news on defence, healthcare, fintech, sustainability, and politics.
 
-The bot uses Tavily for search, Groq for article summarization with `openai/gpt-oss-120b`, and the Telegram Bot API for delivery.
+Both jobs read RSS feeds (via `feedparser`), use Groq for summarization with `openai/gpt-oss-120b` and the Telegram Bot API for delivery.
 
-Each topic is handled by a dedicated agent. All agents run in parallel (search phase), while LLM summarization calls are serialized globally to respect the model's TPM rate limit. The final digest is compiled from all agents into a single Telegram message. If the message exceeds Telegram's 4096-character limit, it is split into chunks automatically.
+Each topic is handled by a dedicated agent. All agents run in parallel (fetch phase), while LLM summarization calls are serialized globally to respect the model's TPM rate limit. The final digest is compiled from all agents into a single Telegram message. If the message exceeds Telegram's 4096-character limit, it is split into chunks automatically.
 
-The research digest is restricted to academic domains and uses a one-week search window. The news digest uses a one-day search window. Delivered URLs are stored in `state/seen_urls.json` so future runs skip already-seen articles.
+Each agent takes the newest unseen articles from its topic's RSS feed (news agents also have a fallback feed). Delivered URLs are stored in `state/seen_urls.json` so future runs skip already-seen articles.
 
 ---
 
@@ -27,16 +27,18 @@ main.py                          CLI entry point
 │                                prints execution summary
 │
 ├── agents/
-│   ├── base_agent.py            Abstract base — owns the execute() lifecycle
+│   ├── base_agent.py            Minimal abstract contract (name, knowledge key, execute)
+│   ├── base_feed_agent.py       Shared RSS lifecycle: fetch → prepare → rank → claim URLs → summarize
 │   ├── research/
-│   │   ├── base_research_agent.py   Shared academic filtering + abstract extraction
+│   │   ├── base_research_agent.py   Abstract extraction; default batch size
+│   │   ├── etech_agent.py
 │   │   ├── llms_agent.py
 │   │   ├── agentic_ai_agent.py
 │   │   ├── computer_vision_agent.py
-│   │   ├── nlp_agent.py
+│   │   ├── nlp_agent.py             Inactive — not listed in _RESEARCH_AGENTS
 │   │   └── ml_agent.py
 │   └── news/
-│       ├── base_news_agent.py   Shared news search params
+│       ├── base_news_agent.py   Inactive Indian/Global retry loop; default batch size
 │       ├── defence_agent.py
 │       ├── healthcare_agent.py
 │       ├── fintech_agent.py
@@ -45,73 +47,87 @@ main.py                          CLI entry point
 │
 ├── prompts/
 │   ├── research/                One prompt file per research topic
-│   └── news/                    One prompt file per news topic
+│   └── news/                    One prompt file per news topic + classification_prompt.py
 │
 ├── knowledge/
 │   ├── knowledge_base.py        Loads domains.json, exposes retrieve(key)
-│   └── domains.json             Per-agent domain allowlists and filter signals
+│   └── domains.json             Per-agent RSS feeds, batch size, and exclusion signals
 │
 ├── models/
 │   ├── agent_response.py        AgentResponse, ArticleSummary, AgentExecutionResult
+│   ├── feed_article.py          FeedArticle (title, url, published, content, geography)
 │   └── digest_result.py         DigestResult
 │
 └── services/
     ├── llm_service.py           Groq wrapper — global semaphore for TPM safety
-    ├── search_service.py        Tavily wrapper
+
+    ├── rss_service.py           feedparser wrapper — fetch(url, offset, count)
+    ├── article_classifier.py    Indian/Global classifier — pass-through skeleton for now
+    ├── article_ranker.py        ArticleRanker ABC + ChronologicalRanker (newest first)
     ├── telegram_service.py      Telegram Bot API sender + message chunking
     └── url_tracker.py           seen_urls.json I/O + URL normalization
 ```
 
 ### Execution flow
 
+Both jobs share the same orchestration and pipeline; only the agents and feeds differ.
+
 ```
-Config.validate()
+Config.validate()                Groq + Telegram credentials
        │
        ▼
-LLMService + SearchService + KnowledgeBase   (created once per run)
+Services created once per run (both jobs)
+  LLMService + RSSService + ArticleClassifier + ChronologicalRanker + KnowledgeBase
        │
        ▼
-AgentOrchestrator
-  registers 5 agents
+AgentOrchestrator — registers 5 agents, runs them in parallel (ThreadPoolExecutor)
        │
        ▼
-ThreadPoolExecutor — all 5 agents run in parallel
-  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-  │ Agent 1    │  │ Agent 2    │  │ Agent 3    │  │ Agent 4    │  │ Agent 5    │
-  │ search()   │  │ search()   │  │ search()   │  │ search()   │  │ search()   │
-  │ filter()   │  │ filter()   │  │ filter()   │  │ filter()   │  │ filter()   │
-  │ ──────── serialized LLM calls (global semaphore, 5 s gap) ──────────────── │
-  │ summarize()│  │ summarize()│  │ summarize()│  │ summarize()│  │ summarize()│
-  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘
-        └───────────────┴───────────────┴───────────────┴───────────────┘
-                                         │
-                                         ▼
-                              compile_digest()  →  DigestResult
-                                         │
-                              ┌──────────┴──────────┐
-                              ▼                     ▼
-                       TelegramService         URLTracker
-                        .send(message)        .mark_seen(urls)
+Per agent (retry up to 3×):
+  RSS feed(s) → exclude → classify (no-op) → rank by date → dedupe → summarize
+            ─── LLM calls serialized by global semaphore (5 s gap) ───
+       │
+       ▼
+_compile_digest() → DigestResult
+       │
+  ┌────┴─────┐
+  ▼          ▼
+TelegramService   URLTracker
+.send(message)    .mark_seen(urls)
 ```
 
 ### Agent design
 
-Every agent inherits from `BaseAgent` and implements four hooks:
+Every agent inherits from `BaseAgent`, which defines three abstract members: `get_agent_name()`, `get_knowledge_key()` and `execute(max_results, seen_urls)`. `BaseFeedAgent` implements the shared `execute()` lifecycle; `BaseResearchAgent` and `BaseNewsAgent` only add tier-specific defaults and hooks (`_prepare_articles()`).
 
-| Hook | Purpose |
-|---|---|
-| `get_agent_name()` | Human-readable label used in the digest and execution summary |
-| `get_knowledge_key()` | Key into `domains.json` for this agent's domain config |
-| `get_search_query()` | Tavily query string |
-| `build_summary_prompt(article)` | Formats the topic-specific LLM prompt |
+**Cross-agent dedupe:** the URLs seen so far are held in a `SeenURLs` set. Each agent calls its atomic `claim(url)` before summarizing, so two parallel agents never pick the same article (e.g. an arXiv paper cross-listed in `cs.AI` and `cs.LG`).
 
-`BaseAgent.execute()` owns the full lifecycle and is never overridden:
+**`batch_size`** is how many entries are read from the top of each feed (primary and fallback separately) before ranking and dedupe. It is a candidate pool, not the number of articles sent — `--max-results` controls that. A larger pool helps when the newest entries are already seen or excluded.
 
+**Research agents** (`BaseResearchAgent`) follow the same pattern as news agents. Their feed config also supports `exclude_text_signals`, a list of strings that drop an entry (used to skip arXiv `Announce Type: replace` revisions). The classifier is wired in as a pass-through; there is no retry loop.
+
+```json
+"llms_research": {
+  "feeds": { "primary": "https://rss.arxiv.org/rss/cs.CL" },
+  "batch_size": 10,
+  "exclude_text_signals": ["Announce Type: replace"]
+}
 ```
-search() → filter() → select() → summarize() → AgentResponse
+
+**News agents** (`BaseNewsAgent`) are constructed with `(llm, rss, classifier, ranker, kb)` and implement only `get_agent_name()`, `get_knowledge_key()` and `build_summary_prompt(article)`. Their feeds come from `domains.json`:
+
+```json
+"defence_news": {
+  "feeds": { "primary": "<rss url>", "fallback": "<rss url>" },
+  "batch_size": 2,
+  "max_classify_retries": 3
+}
 ```
 
-`BaseResearchAgent` and `BaseNewsAgent` fill in `get_search_params()` and `filter_article()` with their shared logic. The 10 concrete agents each implement only the four hooks above.
+### News pipeline extension points
+
+- **Ranking** — `ArticleRanker` is an ABC. `ChronologicalRanker` sorts newest-first (undated last). Pass a different ranker in `main.py` to change ordering.
+- **Classification** — `ArticleClassifier.classify()` is currently a pass-through. When implemented it should set `FeedArticle.geography` (`Indian` / `Global`). Then uncomment the marked blocks in `BaseNewsAgent._prepare_articles()` (`agents/news/base_news_agent.py`): the geography filter and the retry loop that fetches further batches (`offset += batch_size`) until an Indian article is found or `max_classify_retries` is hit.
 
 ### Rate limit design
 
@@ -126,7 +142,7 @@ The orchestrator wraps each agent in a retry loop (up to 3 attempts, with 2 s / 
 ## Requirements
 
 - Python 3.11 or newer
-- Tavily API key
+
 - Groq API key
 - Telegram bot token
 - Telegram chat ID
@@ -140,7 +156,7 @@ Copy `.env.example` to `.env` and fill in your values:
 ```env
 # Required
 GROQ_API_KEY=your_groq_api_key
-TAVILY_API_KEY=your_tavily_api_key
+
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_telegram_chat_id
 
@@ -225,127 +241,53 @@ python main.py <job_type> [--max-results N] [--dry-run]
 
 ---
 
-## Remote Server Setup
+## GitHub Actions Setup
 
-These instructions assume an Ubuntu server and deployment under `/opt/AI-news-bot`.
+The bot runs on a schedule through GitHub Actions. Two workflows live in `.github/workflows/`:
 
-Update the server and set the timezone:
+| Workflow | File | Schedule (IST) |
+|---|---|---|
+| Daily News Digest | `news.yml` | Every day at 06:07 |
+| AI Research Digest | `research.yml` | Monday and Thursday at 06:37 |
 
-```bash
-sudo apt update
-sudo apt upgrade
-sudo timedatectl set-timezone Asia/Kolkata
-```
+Both can also be started manually with `workflow_dispatch`.
 
-Install required system packages if needed:
-
-```bash
-sudo apt install -y git python3 python3-venv
-```
-
-Clone the repo:
+### 1. Push the repo to GitHub
 
 ```bash
-cd /opt
-git clone https://github.com/Anhad-01/AI-news-bot.git AI-news-bot
-cd /opt/AI-news-bot
+git push origin main
 ```
 
-If the repo already exists, pull the latest code instead:
+### 2. Add repository secrets
 
-```bash
-cd /opt/AI-news-bot
-git pull origin main
-```
+Go to **Settings → Secrets and variables → Actions → New repository secret** and add:
 
-Create the virtual environment and install dependencies:
+| Secret | Used by |
+|---|---|
+| `GROQ_API_KEY` | news, research |
+| `TELEGRAM_BOT_TOKEN` | news, research |
+| `TELEGRAM_CHAT_ID` | news, research |
 
-```bash
-python3 -m venv .venv
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install -r requirements.txt
-```
 
-Create the server `.env`:
+### 3. Allow the workflow to push state
 
-```bash
-cp .env.example .env
-nano .env
-```
+The workflows commit `state/seen_urls.json` back to the repo after each run. Go to **Settings → Actions → General → Workflow permissions** and select **Read and write permissions**.
 
-Restrict permissions:
+### 4. Run a workflow manually
 
-```bash
-chmod 600 /opt/AI-news-bot/.env
-```
+Open the **Actions** tab, choose a workflow, then click **Run workflow**. Confirm that the digest arrives in Telegram and that a commit named `Update seen URLs` appears.
 
-Test manually:
+### 5. Check logs
 
-```bash
-cd /opt/AI-news-bot
-.venv/bin/python main.py research --max-results 1 --dry-run
-.venv/bin/python main.py news --max-results 1 --dry-run
-```
+Each run uploads `ai-news-bot.log` as an artifact (kept for 30 days). Open the run page and download it from **Artifacts**. The step output also shows the per-agent execution summary.
 
----
+### Changing the schedule
 
-## Cron Setup
+Edit the `cron` line in the workflow file. Times are interpreted in the zone given by `timezone` (`Asia/Kolkata`).
 
-The intended schedule is:
+### Updating the bot
 
-- Research digest: every day at 9:00 AM IST
-- News digest: every day at 9:30 AM IST
-
-If the server timezone is `Asia/Kolkata`, edit the crontab:
-
-```bash
-crontab -e
-```
-
-Add:
-
-```cron
-0 9 * * * cd /opt/AI-news-bot && .venv/bin/python main.py research >> /var/log/ai-news-bot.log 2>&1
-30 9 * * * cd /opt/AI-news-bot && .venv/bin/python main.py news >> /var/log/ai-news-bot.log 2>&1
-```
-
-Verify:
-
-```bash
-crontab -l
-systemctl status cron
-```
-
-Check logs:
-
-```bash
-tail -n 100 /var/log/ai-news-bot.log
-```
-
-If the server timezone is UTC, use these cron times instead:
-
-```cron
-30 3 * * * cd /opt/AI-news-bot && .venv/bin/python main.py research >> /var/log/ai-news-bot.log 2>&1
-0 4 * * * cd /opt/AI-news-bot && .venv/bin/python main.py news >> /var/log/ai-news-bot.log 2>&1
-```
-
----
-
-## Updating the Server
-
-After pushing changes to GitHub:
-
-```bash
-cd /opt/AI-news-bot
-git pull origin main
-.venv/bin/pip install -r requirements.txt
-```
-
-Test before the next cron run:
-
-```bash
-.venv/bin/python main.py research --max-results 1 --dry-run
-```
+Push to `main`. The next scheduled run uses the new code and installs `requirements.txt` fresh each time, so there is nothing to update on a server.
 
 ---
 
@@ -353,17 +295,22 @@ Test before the next cron run:
 
 ### Add a new topic agent
 
-1. Add a prompt file in `prompts/news/` or `prompts/research/`.
-2. Add a domain config entry in `knowledge/domains.json` under the new agent's key.
-3. Create an agent file in `agents/news/` or `agents/research/` inheriting `BaseNewsAgent` or `BaseResearchAgent`. Implement `get_agent_name()`, `get_knowledge_key()`, `get_search_query()`, and `build_summary_prompt()`.
-4. Add the new agent class to `_NEWS_AGENTS` or `_RESEARCH_AGENTS` in `main.py`.
+**Research:**
+1. Add a prompt file in `prompts/research/`.
+2. Add an entry in `knowledge/domains.json` with `feeds.primary`, `batch_size` and optionally `feeds.fallback` and `exclude_text_signals`.
+3. Create an agent in `agents/research/` inheriting `BaseResearchAgent`; implement `get_agent_name()`, `get_knowledge_key()` and `build_summary_prompt(article)`.
+4. Add it to `_RESEARCH_AGENTS` in `main.py`.
 
-Nothing else needs to change.
+**News:**
+1. Add a prompt file in `prompts/news/`.
+2. Add an entry in `knowledge/domains.json` with `feeds.primary`, `feeds.fallback`, `batch_size` and `max_classify_retries`.
+3. Create an agent in `agents/news/` inheriting `BaseNewsAgent`; implement `get_agent_name()`, `get_knowledge_key()` and `build_summary_prompt(article)`.
+4. Add it to `_NEWS_AGENTS` in `main.py`.
 
 ### Swap the LLM provider
 
 Replace `services/llm_service.py` with a new wrapper that exposes the same `generate(prompt, temperature)` interface. Update `GROQ_API_KEY` and `MODEL_NAME` in `.env`. No agent or orchestrator code changes are needed.
 
-### Swap the search provider
+### Swap the article source
 
-Replace `services/search_service.py` with a wrapper exposing `search(query, **kwargs) -> list[dict[str, Any]]`. No agent code changes are needed.
+Replace `services/rss_service.py` with a class exposing `fetch(url, offset, count) -> list[FeedArticle]`, or change feed URLs in `knowledge/domains.json`.

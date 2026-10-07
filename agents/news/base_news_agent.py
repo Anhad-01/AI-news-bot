@@ -1,28 +1,41 @@
 from abc import ABC
-from typing import Any
 
-from agents.base_agent import BaseAgent
+from agents.base_feed_agent import BaseFeedAgent
 from config import Config
+from models.feed_article import FeedArticle
 
 
-class BaseNewsAgent(BaseAgent, ABC):
+class BaseNewsAgent(BaseFeedAgent, ABC):
     """
-    Shared behaviour for all news agents:
-    - Tavily news search with a one-day window.
-    - No domain allowlist — deduplication is handled by the base class.
+    Shared behaviour for all news agents.
+
+    Uses the standard BaseFeedAgent lifecycle. Classification and the
+    Indian/Global retry loop are wired in as stubs in _prepare_articles().
+    Activate them by:
+      1. Implementing ArticleClassifier.classify().
+      2. Uncommenting the retry loop and geography filter below.
     """
 
-    def get_search_params(self) -> dict[str, Any]:
-        return {
-            "topic": "news",
-            "time_range": "day",
-            "days": 1,
-            "max_results": Config.SEARCH_RESULTS_PER_TOPIC,
-            "include_raw_content": True,
-            "search_depth": "basic",
-        }
+    default_batch_size = Config.NEWS_BATCH_SIZE
 
-    def filter_article(self, article: dict[str, Any], url: str, domain: str) -> bool:
-        # News agents accept any domain; source diversity is enforced by the
-        # per-domain deduplication cap in BaseAgent._select_articles().
-        return True
+    def _prepare_articles(self, articles: list[FeedArticle]) -> list[FeedArticle]:
+        # Excludes entries and runs the classifier (currently a no-op).
+        # When activated, the classifier sets article.geography on each article.
+        articles = super()._prepare_articles(articles)
+
+        # ── Activate when classifier is ready ─────────────────────────────
+        # max_retries = self._domain_config.get(
+        #     "max_classify_retries", Config.NEWS_MAX_CLASSIFY_RETRIES
+        # )
+        # for attempt in range(1, max_retries + 1):
+        #     if any(a.geography == "Indian" for a in articles):
+        #         break
+        #     new_batch = self._fetch_articles(offset=attempt * self._batch_size)
+        #     if not new_batch:
+        #         break
+        #     articles += super()._prepare_articles(new_batch)
+        #
+        # articles = [a for a in articles if a.geography == "Indian"]
+        # ──────────────────────────────────────────────────────────────────
+
+        return articles

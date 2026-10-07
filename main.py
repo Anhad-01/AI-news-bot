@@ -9,24 +9,29 @@ from agents.news.politics_agent import PoliticsNewsAgent
 from agents.news.sustainability_agent import SustainabilityNewsAgent
 from agents.research.agentic_ai_agent import AgenticAIResearchAgent
 from agents.research.computer_vision_agent import ComputerVisionResearchAgent
+from agents.research.etech_agent import ETechResearchAgent
 from agents.research.llms_agent import LLMsResearchAgent
 from agents.research.ml_agent import MLResearchAgent
-from agents.research.nlp_agent import NLPResearchAgent
+from agents.research.nlp_agent import NLPResearchAgent  # noqa: F401 (inactive)
 from config import Config
 from knowledge.knowledge_base import KnowledgeBase
 from models.agent_response import AgentResponse
 from models.digest_result import DigestResult
 from orchestrator.orchestrator import AgentOrchestrator
+from services.article_classifier import ArticleClassifier
+from services.article_ranker import ChronologicalRanker
 from services.llm_service import LLMService
-from services.search_service import SearchService
+from services.rss_service import RSSService
+
 from services.telegram_service import TelegramService
 from services.url_tracker import URLTracker
 
+# NLPResearchAgent is intentionally inactive; add it back here to re-enable it.
 _RESEARCH_AGENTS = [
+    ETechResearchAgent,
     LLMsResearchAgent,
     AgenticAIResearchAgent,
     ComputerVisionResearchAgent,
-    NLPResearchAgent,
     MLResearchAgent,
 ]
 
@@ -49,18 +54,15 @@ def log_event(job_type: str, message: str) -> None:
         pass
 
 
-def _make_services() -> tuple[LLMService, SearchService, KnowledgeBase]:
-    # Both keys are guaranteed non-None after Config.validate() in run_job().
+def _make_llm_and_kb() -> tuple[LLMService, KnowledgeBase]:
+    """Services shared by all agents regardless of job type."""
     groq_key = Config.GROQ_API_KEY or ""
-    tavily_key = Config.TAVILY_API_KEY or ""
     llm = LLMService(
         api_key=groq_key,
         model=Config.MODEL_NAME,
         delay=Config.SUMMARY_DELAY_SECONDS,
     )
-    search = SearchService(api_key=tavily_key)
-    kb = KnowledgeBase()
-    return llm, search, kb
+    return llm, KnowledgeBase()
 
 
 def _compile_digest(title: str, responses: list[AgentResponse]) -> DigestResult:
@@ -91,10 +93,14 @@ def _compile_digest(title: str, responses: list[AgentResponse]) -> DigestResult:
 
 
 def build_research_digest(max_results: int) -> DigestResult:
-    llm, search, kb = _make_services()
+    llm, kb = _make_llm_and_kb()
+    rss = RSSService()
+    classifier = ArticleClassifier(llm)
+    ranker = ChronologicalRanker()
+
     orchestrator = AgentOrchestrator()
     for agent_cls in _RESEARCH_AGENTS:
-        orchestrator.register(agent_cls(llm, search, kb))
+        orchestrator.register(agent_cls(llm, rss, classifier, ranker, kb))
 
     seen_urls = URLTracker(Config.STATE_DIR).load()
     responses = orchestrator.execute_all(max_results, seen_urls)
@@ -103,10 +109,14 @@ def build_research_digest(max_results: int) -> DigestResult:
 
 
 def build_news_digest(max_results: int) -> DigestResult:
-    llm, search, kb = _make_services()
+    llm, kb = _make_llm_and_kb()
+    rss = RSSService()
+    classifier = ArticleClassifier(llm)
+    ranker = ChronologicalRanker()
+
     orchestrator = AgentOrchestrator()
     for agent_cls in _NEWS_AGENTS:
-        orchestrator.register(agent_cls(llm, search, kb))
+        orchestrator.register(agent_cls(llm, rss, classifier, ranker, kb))
 
     seen_urls = URLTracker(Config.STATE_DIR).load()
     responses = orchestrator.execute_all(max_results, seen_urls)
@@ -119,7 +129,7 @@ def run_job(
     max_results: int = Config.DEFAULT_MAX_RESULTS,
     dry_run: bool = False,
 ) -> str:
-    Config.validate()
+    Config.validate(job_type=job_type)
     log_event(job_type, "start")
 
     if job_type == "research":
@@ -137,7 +147,7 @@ def run_job(
         )
         return digest.message
 
-    # Both values are guaranteed non-None after Config.validate().
+    # Both values guaranteed non-None after Config.validate().
     telegram = TelegramService(
         bot_token=Config.TELEGRAM_BOT_TOKEN or "",
         chat_id=Config.TELEGRAM_CHAT_ID or "",
