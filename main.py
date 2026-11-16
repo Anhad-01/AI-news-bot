@@ -21,6 +21,7 @@ from orchestrator.orchestrator import AgentOrchestrator
 from services.article_classifier import ArticleClassifier
 from services.article_ranker import ChronologicalRanker
 from services.llm_service import LLMService
+from services.log_service import log_event
 from services.rss_service import RSSService
 
 from services.telegram_service import TelegramService
@@ -42,16 +43,6 @@ _NEWS_AGENTS = [
     SustainabilityNewsAgent,
     PoliticsNewsAgent,
 ]
-
-
-def log_event(job_type: str, message: str) -> None:
-    line = f"{datetime.now().strftime('%Y-%m-%d %H:%M')} {job_type} {message}"
-    print(line, flush=True)
-    try:
-        with Config.LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(f"{line}\n")
-    except OSError:
-        pass
 
 
 def _make_llm_and_kb() -> tuple[LLMService, KnowledgeBase]:

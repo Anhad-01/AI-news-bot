@@ -7,8 +7,9 @@ from models.feed_article import FeedArticle
 from services.article_classifier import ArticleClassifier
 from services.article_ranker import ArticleRanker
 from services.llm_service import LLMService
+from services.log_service import log_event
 from services.rss_service import RSSService
-from services.url_tracker import SeenURLs, normalized_url
+from services.url_tracker import SeenURLs, domain_for_url, normalized_url
 
 
 class BaseFeedAgent(BaseAgent, ABC):
@@ -41,6 +42,7 @@ class BaseFeedAgent(BaseAgent, ABC):
         self._rss = rss
         self._classifier = classifier
         self._ranker = ranker
+        self._article_sources: dict[str, str] = {}
 
     @abstractmethod
     def build_summary_prompt(self, article: FeedArticle) -> str:
@@ -59,6 +61,26 @@ class BaseFeedAgent(BaseAgent, ABC):
                 break
             if seen_urls.claim(normalized_url(article.url)):
                 selected.append(article)
+
+        if selected:
+            for article in selected:
+                url = normalized_url(article.url)
+                source = self._article_sources.get(url) or domain_for_url(url)
+                log_event(
+                    "agent",
+                    f"selected topic={self.get_agent_name()} url={url} source={source}",
+                )
+        else:
+            feeds = self._domain_config.get("feeds", {})
+            configured = ", ".join(
+                feed
+                for feed in (feeds.get("primary", ""), feeds.get("fallback", ""))
+                if feed
+            )
+            log_event(
+                "agent",
+                f"no-link-found topic={self.get_agent_name()} feeds={configured}",
+            )
 
         return AgentResponse(
             agent_name=self.get_agent_name(),
@@ -83,14 +105,30 @@ class BaseFeedAgent(BaseAgent, ABC):
     def _fetch_articles(self, offset: int) -> list[FeedArticle]:
         """Fetch one batch from the primary feed and (if configured) the fallback feed."""
         feeds = self._domain_config.get("feeds", {})
-        return (
-            self._rss.fetch(feeds.get("primary", ""), offset=offset, count=self._batch_size)
-            + self._rss.fetch(feeds.get("fallback", ""), offset=offset, count=self._batch_size)
-        )
+        articles: list[FeedArticle] = []
+        for feed_url in (feeds.get("primary", ""), feeds.get("fallback", "")):
+            if not feed_url:
+                continue
+            fetched = self._rss.fetch(feed_url, offset=offset, count=self._batch_size)
+            log_event(
+                "agent",
+                f"feed topic={self.get_agent_name()} url={feed_url} "
+                f"offset={offset} count={len(fetched)}",
+            )
+            for article in fetched:
+                self._article_sources[normalized_url(article.url)] = feed_url
+                articles.append(article)
+        return articles
 
     def _summarize(self, article: FeedArticle) -> ArticleSummary:
         prompt = self.build_summary_prompt(article)
         summary = self._llm.generate(prompt)
+        preview = summary[:30].replace("\n", " ")
+        log_event(
+            "agent",
+            f"summary topic={self.get_agent_name()} "
+            f"url={normalized_url(article.url)} preview={preview!r}",
+        )
         return ArticleSummary(
             title=article.title,
             url=normalized_url(article.url),
